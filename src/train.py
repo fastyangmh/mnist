@@ -73,5 +73,6 @@ if __name__ == "__main__":
     optimizer = optim.Adam(single_model.parameters(), lr=lr)
     loss_function = nn.CrossEntropyLoss()
 
-    #train
-    history=train_loop(train_loader,single_model,optimizer,loss_function,epochs)
+    # train
+    history = train_loop(train_loader, single_model,
+                         optimizer, loss_function, epochs)
