@@ -6,25 +6,44 @@ import torchvision.transforms as transforms
 from os.path import join
 import torch.optim as optim
 from tqdm import tqdm
+import numpy as np
+from sklearn.metrics import accuracy_score
 
 # def
 
 
-def train_loop(dataloader, model, optimizer, loss_function, epochs):
+def train_loop(dataloader, model, optimizer, criterion, epochs):
     history = []
     model.train()
     for epoch in tqdm(range(epochs)):
         total_loss = 0
         for x, y in dataloader:
+            if use_cuda:
+                x, y = x.cuda(), y.cuda()
             yhat = model(x.view(dataloader.batch_size, -1))
-            loss = loss_function(yhat, y)
+            loss = criterion(yhat, y)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
         history.append(total_loss/dataloader.batch_size)
-        print(history[-1])
+        print('\n', round(history[-1], 4))
     return history
+
+
+def evaluation(dataloader, model):
+    predict = []
+    accuracy = []
+    model.eval()
+    for x, y in dataloader:
+        if use_cuda:
+            x, y = x.cuda(), y.cuda()
+        pred = model(x).cpu().data.numpy()
+        pred = np.argmax(pred, 1)
+        acc = accuracy(y.cpu().data.numpy(), pred)
+        predict.append(pred)
+        accuracy.append(acc)
+    return predict, accuracy
 
 
 # class
@@ -51,9 +70,10 @@ class MLP(nn.Module):
 
 if __name__ == "__main__":
     # parameters
+    use_cuda = torch.cuda.is_available()
     datasets_path = '../data'
-    batch_size = 32
-    lr = 0.05
+    batch_size = 1000
+    lr = 0.001
     epochs = 20
 
     # load data
@@ -69,10 +89,16 @@ if __name__ == "__main__":
         dataset=test_set, batch_size=batch_size, shuffle=False)
 
     # create model
-    single_model = MLP(784, 18, 256, 3, 0.5)
+    single_model = MLP(784, 10, 256, 3, 0.5)
     optimizer = optim.Adam(single_model.parameters(), lr=lr)
-    loss_function = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss()
+    if use_cuda:
+        single_model = single_model.cuda()
 
     # train
     history = train_loop(train_loader, single_model,
-                         optimizer, loss_function, epochs)
+                         optimizer, criterion, epochs)
+    print(history)
+
+    # evaluation
+    predict, accuracy = evaluation(test_loader, model)
