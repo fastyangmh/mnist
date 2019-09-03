@@ -9,6 +9,7 @@ from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import accuracy_score
 from imblearn.datasets import make_imbalance
+import matplotlib.pyplot as plt
 
 # def
 
@@ -22,7 +23,7 @@ def train_loop(dataloader, model, optimizer, criterion, epochs):
         for x, y in train_loader:
             if param['use_cuda']:
                 x, y = x.cuda(), y.cuda()
-            yhat = model(x.view(train_loader.batch_size, -1))
+            yhat = model(x.view(-1, 784))
             loss = criterion(yhat, y)
             optimizer.zero_grad()
             loss.backward()
@@ -39,7 +40,7 @@ def evaluation(dataloader, model):
     for x, y in dataloader:
         if param['use_cuda']:
             x, y = x.cuda(), y.cuda()
-        pred = model(x.view(dataloader.batch_size, -1)).cpu().data.numpy()
+        pred = model(x.view(-1, 784)).cpu().data.numpy()
         pred = np.argmax(pred, 1)
         acc = accuracy_score(y.cpu().data.numpy(), pred)
         predict.append(pred)
@@ -55,30 +56,62 @@ def main(typ):
         root=param['datasets_path'], train=True, transform=trans, download=True)
     test_set = datasets.MNIST(
         root=param['datasets_path'], train=False, transform=trans, download=True)
-    train_loader = torch.utils.data.DataLoader(
-        dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(
-        dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
 
     # create model
     if typ == 'single':
-        single_model = MLP(in_dim=784, out_dim=10,
-                           hidden_dim=256, n_hidden=1, dropout=0.5)
-        optimizer = optim.Adam(single_model.parameters(), lr=param['lr'])
+        # create dataloader
+        train_loader = torch.utils.data.DataLoader(
+            dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
+
+        # create model
+        model = MLP(in_dim=784, out_dim=10,
+                    hidden_dim=256, n_hidden=1, dropout=0.5)
+        optimizer = optim.Adam(model.parameters(), lr=param['lr'])
         criterion = nn.CrossEntropyLoss()
         if param['use_cuda']:
-            single_model = single_model.cuda()
+            model = model.cuda()
 
         # train
-        history = train_loop((train_loader, test_loader), single_model,
+        history = train_loop((train_loader, test_loader), model,
                              optimizer, criterion, param['epochs'])
 
         # evaluation
-        predict, accuracy = evaluation(test_loader, single_model)
+        predict, accuracy = evaluation(test_loader, model)
         print('Accuracy: ', np.mean(accuracy))
 
+    if typ == 'multiple':
+        models = []
+        histories = []
+        for i in range(len(train_set.classes)):
+            # create dataloader
+            train_loader = make_balance_dataloader(train_set, i, trans)
+            test_loader = make_balance_dataloader(test_set, i, trans)
 
-def make_balance_dataloader(train_set, target):
+            # create model
+            model = MLP(in_dim=784, out_dim=1, hidden_dim=256,
+                        n_hidden=1, dropout=0.5)
+            optimizer = optim.Adam(model.parameters(), lr=param['lr'])
+            criterion = nn.BCELoss()
+            if param['use_cuda']:
+                model = model.cuda()
+
+            # train
+            history = train_loop((train_loader, None), model,
+                                 optimizer, criterion, param['epochs'])
+
+            # evaluation
+            predict, accuracy = evaluation(test_loader, model)
+            print('Accuracy: ', np.mean(accuracy))
+
+            # append model and history
+            models.append(model)
+            histories.append(history)
+    return (model, history) if typ == 'single' else (models, histories)
+
+
+def make_balance_dataloader(train_set, target, transform):
     n = train_set.data[train_set.targets == target].shape[0]
     ratio = {}
     for i in range(10):
@@ -88,7 +121,12 @@ def make_balance_dataloader(train_set, target):
             ratio[i] = n//9
     data, targets = make_imbalance(
         train_set.data.view(-1, 784), train_set.targets, ratio)
-    train_set = TensorsDataset(data.reshape(-1, 28, 28), targets)
+    pos_index = targets == target
+    neg_index = targets != target
+    targets[pos_index] = 1
+    targets[neg_index] = 0
+    train_set = TensorsDataset(
+        data.reshape(-1, 28, 28), targets.reshape(-1, 1).astype(np.float32), transform)
     return torch.utils.data.DataLoader(dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
 
 
@@ -169,4 +207,6 @@ if __name__ == "__main__":
              'lr': 0.02,
              'epochs': 6}
     # main
-    main('single')
+    typ = {0: 'single', 1: 'multiple'}
+    index = 1
+    model, history = main(typ[index])
