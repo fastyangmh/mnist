@@ -8,6 +8,7 @@ import torch.optim as optim
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import accuracy_score
+from imblearn.datasets import make_imbalance
 
 # def
 
@@ -76,7 +77,68 @@ def main(typ):
         predict, accuracy = evaluation(test_loader, single_model)
         print('Accuracy: ', np.mean(accuracy))
 
+
+def make_balance_dataloader(train_set, target):
+    n = train_set.data[train_set.targets == target].shape[0]
+    ratio = {}
+    for i in range(10):
+        if i == target:
+            ratio[i] = n
+        else:
+            ratio[i] = n//9
+    data, targets = make_imbalance(
+        train_set.data.view(-1, 784), train_set.targets, ratio)
+    train_set = TensorsDataset(data.reshape(-1, 28, 28), targets)
+    return torch.utils.data.DataLoader(dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
+
+
 # class
+
+
+class TensorsDataset(torch.utils.data.Dataset):
+
+    '''
+    A simple loading dataset - loads the tensor that are passed in input. This is the same as
+    torch.utils.data.TensorDataset except that you can add transformations to your data and target tensor.
+    Target tensor can also be None, in which case it is not returned.
+    '''
+
+    def __init__(self, data_tensor, target_tensor=None, transforms=None, target_transforms=None):
+        if target_tensor is not None:
+            assert data_tensor.shape[0] == target_tensor.shape[0]
+        self.data_tensor = data_tensor
+        self.target_tensor = target_tensor
+
+        if transforms is None:
+            transforms = []
+        if target_transforms is None:
+            target_transforms = []
+
+        if not isinstance(transforms, list):
+            transforms = [transforms]
+        if not isinstance(target_transforms, list):
+            target_transforms = [target_transforms]
+
+        self.transforms = transforms
+        self.target_transforms = target_transforms
+
+    def __getitem__(self, index):
+
+        data_tensor = self.data_tensor[index]
+        for transform in self.transforms:
+            data_tensor = transform(data_tensor)
+
+        if self.target_tensor is None:
+            return data_tensor
+
+        target_tensor = self.target_tensor[index]
+        for transform in self.target_transforms:
+            target_tensor = transform(target_tensor)
+
+        return data_tensor, target_tensor
+
+    def __len__(self):
+        return self.data_tensor.shape[0]
 
 
 class MLP(nn.Module):
