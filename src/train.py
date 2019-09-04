@@ -117,26 +117,51 @@ def main(typ):
             # append model and history
             models.append(model)
             histories.append(history)
+
+        # total accuracy
+        train_loader = torch.utils.data.DataLoader(
+            dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
+        train_set_acc = []
+        for x, y in train_loader:
+            pred = []
+            for i in range(len(train_set.classes)):
+                model = models[i].eval()
+                pred.append(model(x.view(-1, 784)).cpu().data.numpy())
+            train_set_acc.append(accuracy_score(
+                y.cpu().data.numpy(), np.argmax(pred, 0)))
+        test_set_acc = []
+        for x, y in test_loader:
+            pred = []
+            for i in range(len(test_set.classes)):
+                model = models[i].eval()
+                pred.append(model(x.view(-1, 784)).cpu().data.numpy())
+            test_set_acc.append(accuracy_score(
+                y.cpu().data.numpy(), np.argmax(pred, 0)))
+        print('Total model train set accuracy: {}'.format(np.mean(train_set_acc)))
+        print('Total model test set accuracy: {}'.format(np.mean(test_set_acc)))
+
     return (model, history) if typ == 'single' else (models, histories)
 
 
-def make_balance_dataloader(train_set, target, transform):
-    n = train_set.data[train_set.targets == target].shape[0]
+def make_balance_dataloader(data_set, target, transform):
+    n = data_set.data[data_set.targets == target].shape[0]
     ratio = {}
-    for i in range(10):
+    for i in range(len(data_set.classes)):
         if i == target:
             ratio[i] = n
         else:
-            ratio[i] = n//9
+            ratio[i] = n//(len(data_set.classes)-1)
     data, targets = make_imbalance(
-        train_set.data.view(-1, 784), train_set.targets, ratio)
+        data_set.data.view(-1, 784), data_set.targets, ratio)
     pos_index = targets == target
     neg_index = targets != target
     targets[pos_index] = 1
     targets[neg_index] = 0
-    train_set = TensorsDataset(
+    data_set = TensorsDataset(
         data.reshape(-1, 28, 28), targets.reshape(-1, 1).astype(np.float32), transform)
-    return torch.utils.data.DataLoader(dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
+    return torch.utils.data.DataLoader(dataset=data_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
 
 
 # class
