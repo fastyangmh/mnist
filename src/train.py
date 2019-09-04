@@ -33,7 +33,7 @@ def train_loop(dataloader, model, optimizer, criterion, epochs):
     return history
 
 
-def evaluation(dataloader, model):
+def evaluation(dataloader, model, typ):
     predict = []
     accuracy = []
     model.eval()
@@ -41,7 +41,10 @@ def evaluation(dataloader, model):
         if param['use_cuda']:
             x, y = x.cuda(), y.cuda()
         pred = model(x.view(-1, 784)).cpu().data.numpy()
-        pred = np.argmax(pred, 1)
+        if typ == 'single':
+            pred = np.argmax(pred, 1)
+        if typ == 'multiple':
+            pred = np.where(pred > 0.5, 1, 0)
         acc = accuracy_score(y.cpu().data.numpy(), pred)
         predict.append(pred)
         accuracy.append(acc)
@@ -78,8 +81,10 @@ def main(typ):
                              optimizer, criterion, param['epochs'])
 
         # evaluation
-        predict, accuracy = evaluation(test_loader, model)
-        print('Accuracy: ', np.mean(accuracy))
+        predict, accuracy = evaluation(train_loader, model, typ)
+        print('Train set accuracy: ', np.mean(accuracy))
+        predict, accuracy = evaluation(test_loader, model, typ)
+        print('Test set accuracy: ', np.mean(accuracy))
 
     if typ == 'multiple':
         models = []
@@ -102,8 +107,10 @@ def main(typ):
                                  optimizer, criterion, param['epochs'])
 
             # evaluation
-            predict, accuracy = evaluation(test_loader, model)
-            print('Accuracy: ', np.mean(accuracy))
+            predict, accuracy = evaluation(train_loader, model, typ)
+            print('Train set accuracy: ', np.mean(accuracy))
+            predict, accuracy = evaluation(test_loader, model, typ)
+            print('Test set accuracy: ', np.mean(accuracy))
 
             # append model and history
             models.append(model)
