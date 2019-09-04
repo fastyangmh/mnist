@@ -10,6 +10,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score
 from imblearn.datasets import make_imbalance
 import matplotlib.pyplot as plt
+import argparse
 
 # def
 
@@ -95,6 +96,7 @@ def main(typ):
             test_loader = make_balance_dataloader(test_set, i, trans)
 
             # create model
+            print('Model {}'.format(i))
             model = MLP(in_dim=784, out_dim=1, hidden_dim=256,
                         n_hidden=1, dropout=0.5)
             optimizer = optim.Adam(model.parameters(), lr=param['lr'])
@@ -207,6 +209,11 @@ class MLP(nn.Module):
 
 if __name__ == "__main__":
     # parameters
+    parser = argparse.ArgumentParser(
+        description='Use single model or multi-model.')
+    parser.add_argument('index', type=int,
+                        help='0 for single model, 1 for multi-model.')
+    args = parser.parse_args()
     param = {'use_cuda': torch.cuda.is_available(),
              'datasets_path': '../data',
              'num_workers': 4,
@@ -215,5 +222,5 @@ if __name__ == "__main__":
              'epochs': 6}
     # main
     typ = {0: 'single', 1: 'multiple'}
-    index = 1
+    index = args.index
     model, history = main(typ[index])
