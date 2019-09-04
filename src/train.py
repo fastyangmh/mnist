@@ -125,6 +125,8 @@ def main(typ):
             dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
         train_set_acc = []
         for x, y in train_loader:
+            if param['use_cuda']:
+                x, y = x.cuda(), y.cuda()
             pred = []
             for i in range(len(train_set.classes)):
                 model = models[i].eval()
@@ -133,6 +135,8 @@ def main(typ):
                 y.cpu().data.numpy(), np.argmax(pred, 0)))
         test_set_acc = []
         for x, y in test_loader:
+            if param['use_cuda']:
+                x, y = x.cuda(), y.cuda()
             pred = []
             for i in range(len(test_set.classes)):
                 model = models[i].eval()
