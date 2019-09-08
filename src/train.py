@@ -8,8 +8,7 @@ import torch.optim as optim
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import accuracy_score
-from imblearn.over_sampling import ADASYN
-from imblearn.under_sampling import TomekLinks
+from imblearn.datasets import make_imbalance
 import matplotlib.pyplot as plt
 import argparse
 
@@ -151,16 +150,10 @@ def main(typ):
 
 
 def make_balance_dataloader(data_set, target, transform, oversampling=False):
-    data, targets = data_set.data.view(-1,
-                                       784).data.numpy(), data_set.targets.data.numpy()
-    targets = (targets == target).astype(int)
-
-    if oversampling:
-        ada = ADASYN('minority')
-        data, targets = ada.fit_resample(data, targets)
-    else:
-        toli = TomekLinks('not minority')
-        data, targets = toli.fit_resample(data, targets)
+    data, targets = data_set.data.view(-1, 784), data_set.targets
+    targets = (targets == target).int()
+    ratio = {1: targets.sum().item(), 0: targets.sum().item()}
+    data, targets = make_imbalance(data, targets, ratio)
     data_set = TensorsDataset(
         data.reshape(-1, 28, 28), targets.reshape(-1, 1).astype(np.float32), transform)
     return torch.utils.data.DataLoader(dataset=data_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
@@ -240,9 +233,10 @@ if __name__ == "__main__":
         description='Use single model or multi-model.')
     parser.add_argument('index', type=int,
                         help='0 for single model, 1 for multi-model.')
+    parser.add_argument('datasets_path', type=str, help='datasets path')
     args = parser.parse_args()
     param = {'use_cuda': torch.cuda.is_available(),
-             'datasets_path': '../data',
+             'datasets_path': args.datasets_path,
              'num_workers': 4,
              'batch_size': 5000,
              'lr': 0.02,
