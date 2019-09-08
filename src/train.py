@@ -8,7 +8,8 @@ import torch.optim as optim
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import accuracy_score
-from imblearn.datasets import make_imbalance
+from imblearn.over_sampling import ADASYN
+from imblearn.under_sampling import TomekLinks
 import matplotlib.pyplot as plt
 import argparse
 
@@ -78,7 +79,7 @@ def main(typ):
             model = model.cuda()
 
         # train
-        history = train_loop((train_loader, test_loader), model,
+        history = train_loop((train_loader, None), model,
                              optimizer, criterion, param['epochs'])
 
         # evaluation
@@ -118,7 +119,7 @@ def main(typ):
             models.append(model)
             histories.append(history)
 
-        # total accuracy
+        # total model evaluation
         train_loader = torch.utils.data.DataLoader(
             dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
         test_loader = torch.utils.data.DataLoader(
@@ -149,20 +150,17 @@ def main(typ):
     return (model, history) if typ == 'single' else (models, histories)
 
 
-def make_balance_dataloader(data_set, target, transform):
-    n = data_set.data[data_set.targets == target].shape[0]
-    ratio = {}
-    for i in range(len(data_set.classes)):
-        if i == target:
-            ratio[i] = n
-        else:
-            ratio[i] = n//(len(data_set.classes)-1)
-    data, targets = make_imbalance(
-        data_set.data.view(-1, 784), data_set.targets, ratio)
-    pos_index = targets == target
-    neg_index = targets != target
-    targets[pos_index] = 1
-    targets[neg_index] = 0
+def make_balance_dataloader(data_set, target, transform, oversampling=False):
+    data, targets = data_set.data.view(-1,
+                                       784).data.numpy(), data_set.targets.data.numpy()
+    targets = (targets == target).astype(int)
+
+    if oversampling:
+        ada = ADASYN('minority')
+        data, targets = ada.fit_resample(data, targets)
+    else:
+        toli = TomekLinks('not minority')
+        data, targets = toli.fit_resample(data, targets)
     data_set = TensorsDataset(
         data.reshape(-1, 28, 28), targets.reshape(-1, 1).astype(np.float32), transform)
     return torch.utils.data.DataLoader(dataset=data_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
