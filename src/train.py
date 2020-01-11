@@ -21,7 +21,7 @@ def train_loop(dataloader, model, optimizer, criterion, epochs):
     history = []
     for epoch in tqdm(range(epochs)):
         model.train()
-        total_loss = 0
+        total_loss = []
         for x, y in train_loader:
             if param['use_cuda']:
                 x, y = x.cuda(), y.cuda()
@@ -30,8 +30,8 @@ def train_loop(dataloader, model, optimizer, criterion, epochs):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
-        history.append(total_loss/train_loader.batch_size)
+            total_loss.append(loss.item())
+        history.append(np.mean(total_loss))
     return history
 
 
@@ -53,104 +53,7 @@ def evaluation(dataloader, model, typ):
     return predict, accuracy
 
 
-def main(typ):
-    # load data
-    # range [0, 255] -> [0.0,1.0]
-    trans = transforms.Compose([transforms.ToTensor()])
-    train_set = datasets.MNIST(
-        root=param['datasets_path'], train=True, transform=trans, download=True)
-    test_set = datasets.MNIST(
-        root=param['datasets_path'], train=False, transform=trans, download=True)
-
-    # create model
-    if typ == 'single':
-        # create dataloader
-        train_loader = torch.utils.data.DataLoader(
-            dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
-        test_loader = torch.utils.data.DataLoader(
-            dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
-
-        # create model
-        model = MLP(in_dim=784, out_dim=10,
-                    hidden_dim=256, n_hidden=1, dropout=0.5)
-        optimizer = optim.Adam(model.parameters(), lr=param['lr'])
-        criterion = nn.CrossEntropyLoss()
-        if param['use_cuda']:
-            model = model.cuda()
-
-        # train
-        history = train_loop((train_loader, None), model,
-                             optimizer, criterion, param['epochs'])
-
-        # evaluation
-        predict, accuracy = evaluation(train_loader, model, typ)
-        print('Train set accuracy: ', np.mean(accuracy))
-        predict, accuracy = evaluation(test_loader, model, typ)
-        print('Test set accuracy: ', np.mean(accuracy))
-
-    if typ == 'multiple':
-        models = []
-        histories = []
-        for i in range(len(train_set.classes)):
-            # create dataloader
-            train_loader = make_balance_dataloader(train_set, i, trans)
-            test_loader = make_balance_dataloader(test_set, i, trans)
-
-            # create model
-            print('Model {}'.format(i))
-            model = MLP(in_dim=784, out_dim=1, hidden_dim=256,
-                        n_hidden=1, dropout=0.5)
-            optimizer = optim.Adam(model.parameters(), lr=param['lr'])
-            criterion = nn.BCELoss()
-            if param['use_cuda']:
-                model = model.cuda()
-
-            # train
-            history = train_loop((train_loader, None), model,
-                                 optimizer, criterion, param['epochs'])
-
-            # evaluation
-            predict, accuracy = evaluation(train_loader, model, typ)
-            print('Train set accuracy: ', np.mean(accuracy))
-            predict, accuracy = evaluation(test_loader, model, typ)
-            print('Test set accuracy: ', np.mean(accuracy))
-
-            # append model and history
-            models.append(model)
-            histories.append(history)
-
-        # total model evaluation
-        train_loader = torch.utils.data.DataLoader(
-            dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
-        test_loader = torch.utils.data.DataLoader(
-            dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
-        train_set_acc = []
-        for x, y in train_loader:
-            if param['use_cuda']:
-                x, y = x.cuda(), y.cuda()
-            pred = []
-            for i in range(len(train_set.classes)):
-                model = models[i].eval()
-                pred.append(model(x.view(-1, 784)).cpu().data.numpy())
-            train_set_acc.append(accuracy_score(
-                y.cpu().data.numpy(), np.argmax(pred, 0)))
-        test_set_acc = []
-        for x, y in test_loader:
-            if param['use_cuda']:
-                x, y = x.cuda(), y.cuda()
-            pred = []
-            for i in range(len(test_set.classes)):
-                model = models[i].eval()
-                pred.append(model(x.view(-1, 784)).cpu().data.numpy())
-            test_set_acc.append(accuracy_score(
-                y.cpu().data.numpy(), np.argmax(pred, 0)))
-        print('Total model train set accuracy: {}'.format(np.mean(train_set_acc)))
-        print('Total model test set accuracy: {}'.format(np.mean(test_set_acc)))
-
-    return (model, history) if typ == 'single' else (models, histories)
-
-
-def make_balance_dataloader(data_set, target, transform, oversampling=False):
+def make_balance_dataloader(data_set, target, transform):
     data, targets = data_set.data.view(-1, 784), data_set.targets
     targets = (targets == target).int()
     ratio = {1: targets.sum().item(), 0: targets.sum().item()}
@@ -209,22 +112,116 @@ class TensorsDataset(torch.utils.data.Dataset):
         return self.data_tensor.shape[0]
 
 
-
 if __name__ == "__main__":
     # parameters
     parser = argparse.ArgumentParser(
         description='Use single model or multi-model.')
-    parser.add_argument('index', type=int,
+    parser.add_argument('-i', dest='index', type=int, default=0,
                         help='0 for single model, 1 for multi-model.')
-    parser.add_argument('datasets_path', type=str, help='datasets path')
+    parser.add_argument('-p', dest='data_path', type=str,
+                        default='./data', help='datasets path')
     args = parser.parse_args()
     param = {'use_cuda': torch.cuda.is_available(),
-             'datasets_path': args.datasets_path,
+             'data_path': args.data_path,
              'num_workers': 4,
              'batch_size': 5000,
              'lr': 0.02,
              'epochs': 6}
-    # main
-    typ = {0: 'single', 1: 'multiple'}
-    index = args.index
-    model, history = main(typ[index])
+    typ_dict = {0: 'single', 1: 'multiple'}
+    typ = typ_dict[args.index]
+
+    # load data
+    """range [0, 255] -> [0.0,1.0]"""
+    trans = transforms.Compose([transforms.ToTensor()])
+    train_set = datasets.MNIST(
+        root=param['data_path'], train=True, transform=trans, download=True)
+    test_set = datasets.MNIST(
+        root=param['data_path'], train=False, transform=trans, download=True)
+
+    # create model
+    if typ == 'single':
+        # create dataloader
+        train_loader = torch.utils.data.DataLoader(
+            dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
+
+        # create model
+        model = MLP(in_dim=784, out_dim=10,
+                    hidden_dim=256, n_hidden=1, dropout=0.5)
+        optimizer = optim.Adam(model.parameters(), lr=param['lr'])
+        criterion = nn.CrossEntropyLoss()
+        if param['use_cuda']:
+            model = model.cuda()
+
+        # train
+        history = train_loop((train_loader, None), model,
+                             optimizer, criterion, param['epochs'])
+
+        # evaluation
+        train_predict, train_accuracy = evaluation(train_loader, model, typ)
+        print('Train set accuracy: ', np.mean(train_accuracy))
+        test_predict, test_accuracy = evaluation(test_loader, model, typ)
+        print('Test set accuracy: ', np.mean(test_accuracy))
+
+    if typ == 'multiple':
+        models = []
+        histories = []
+        for i in range(len(train_set.classes)):
+            # create dataloader
+            train_loader = make_balance_dataloader(train_set, i, trans)
+            test_loader = make_balance_dataloader(test_set, i, trans)
+
+            # create model
+            print('Model {}'.format(i))
+            model = MLP(in_dim=784, out_dim=1, hidden_dim=256,
+                        n_hidden=1, dropout=0.5)
+            optimizer = optim.Adam(model.parameters(), lr=param['lr'])
+            criterion = nn.BCELoss()
+            if param['use_cuda']:
+                model = model.cuda()
+
+            # train
+            history = train_loop((train_loader, None), model,
+                                 optimizer, criterion, param['epochs'])
+
+            # evaluation
+            train_predict, train_accuracy = evaluation(
+                train_loader, model, typ)
+            print('Train set accuracy: ', np.mean(train_accuracy))
+            test_predict, test_accuracy = evaluation(test_loader, model, typ)
+            print('Test set accuracy: ', np.mean(test_accuracy))
+
+            # append model and history
+            models.append(model)
+            histories.append(history)
+
+        # total model evaluation
+        train_loader = torch.utils.data.DataLoader(
+            dataset=train_set, batch_size=param['batch_size'], shuffle=True, num_workers=param['num_workers'], pin_memory=True)
+        test_loader = torch.utils.data.DataLoader(
+            dataset=test_set, batch_size=param['batch_size'], shuffle=False, num_workers=param['num_workers'], pin_memory=True)
+        total_train_accuracy = []
+        for x, y in train_loader:
+            if param['use_cuda']:
+                x, y = x.cuda(), y.cuda()
+            pred = []
+            for i in range(len(train_set.classes)):
+                model = models[i].eval()
+                pred.append(model(x.view(-1, 784)).cpu().data.numpy())
+            total_train_accuracy.append(accuracy_score(
+                y.cpu().data.numpy(), np.argmax(pred, 0)))
+        total_test_accuracy = []
+        for x, y in test_loader:
+            if param['use_cuda']:
+                x, y = x.cuda(), y.cuda()
+            pred = []
+            for i in range(len(test_set.classes)):
+                model = models[i].eval()
+                pred.append(model(x.view(-1, 784)).cpu().data.numpy())
+            total_test_accuracy.append(accuracy_score(
+                y.cpu().data.numpy(), np.argmax(pred, 0)))
+        print('Total model train set accuracy: {}'.format(
+            np.mean(total_train_accuracy)))
+        print('Total model test set accuracy: {}'.format(
+            np.mean(total_test_accuracy)))
